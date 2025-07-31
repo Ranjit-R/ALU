@@ -1,0 +1,134 @@
+
+
+class alu_transaction;
+    localparam int WIDTH = 8;
+    localparam int CMD_WIDTH = 4;
+    rand logic [WIDTH-1:0] opa;
+    rand logic [WIDTH-1:0] opb;
+    rand logic cin;
+    rand logic [1:0] inp_valid ;
+    rand logic [CMD_WIDTH-1:0] cmd;
+     logic ce = 1;
+    rand logic mode;
+    logic [WIDTH+1:0] res;
+    logic oflow;
+    logic cout;
+    logic g, l, e;
+    logic err;
+
+    constraint default_mode_c { soft mode == 0; }
+    constraint default_ce_c   { soft ce == 1; }
+
+
+    constraint mode_c   { mode == 0 -> cin dist {0:/50, 1:/50}; mode == 0 -> cin == 1; }
+    constraint clk_en   { mode == 0 -> ce dist {1:/98}; }
+    constraint valid_c  { inp_valid dist {2'b00:/ 10,2'b01 :/ 50, 2'b10:/ 50, 2'b11:/ 80}; }
+
+
+    constraint cmd_c {
+        if (mode == 1)
+            soft cmd inside {4'b0000, 4'b0001, 4'b0010,4'b0011,4'b0100,4'b0101,4'b0110,4'b0111,4'b1000,4'b1001,4'b1010};
+        else
+            soft cmd inside {4'b0000, 4'b0001, 4'b0010,4'b0011,4'b0100,4'b0101,4'b0110,4'b0111,4'b1000,4'b1001,4'b1010,4'b1011,4'b1100,4'b1101};
+    }
+
+    function alu_transaction copy();
+        alu_transaction copy1 = new();
+        copy1.opa = this.opa;
+        copy1.opb = this.opb;
+        copy1.cin = this.cin;
+        copy1.ce = this.ce;
+        copy1.mode = this.mode;
+        copy1.inp_valid = this.inp_valid;
+        copy1.cmd = this.cmd;
+        return copy1;
+    endfunction
+endclass
+
+
+class mode_check1 extends alu_transaction;//All arithmetic commands
+  constraint valid_cmd {
+    if(mode == 1)
+      cmd inside {[0:8]};
+    else
+      cmd inside {[0:13]};
+  }
+
+  constraint valid_inp_valid {
+    inp_valid inside {3};
+    ce == 1;
+  }
+  constraint valid_mode { mode inside {1}; }
+
+  virtual function alu_transaction copy();
+    mode_check1 copy1;
+    copy1 = new();
+    copy1.inp_valid = this.inp_valid;
+    copy1.mode = this.mode;
+    copy1.cmd = this.cmd;
+    copy1.ce = this.ce;
+    copy1.opa = this.opa;
+    copy1.opb = this.opb;
+    copy1.cin = this.cin;
+    return copy1;
+  endfunction
+endclass
+
+class single_operand extends alu_transaction;//All arithmetic commands
+  constraint valid_cmd {
+    if(mode == 1 && inp_valid == 1)
+        cmd inside {4,5};
+    else if( mode == 1 && inp_valid == 2)
+        cmd inside {6,7};
+    else if( mode == 0 && inp_valid == 1)
+        cmd inside {6,8,9};
+    else if( mode == 0 && inp_valid == 2)
+        cmd inside {7,10,11};
+  }
+
+
+ constraint valid_mode { (mode || !mode) inside {1,2}; }
+
+
+  virtual function alu_transaction copy();
+    mode_check1 copy2;
+    copy2 = new();
+    copy2.inp_valid = this.inp_valid;
+    copy2.mode = this.mode;
+    copy2.cmd = this.cmd;
+    copy2.ce = this.ce;
+    copy2.opa = this.opa;
+    copy2.opb = this.opb;
+    copy2.cin = this.cin;
+    return copy2;
+  endfunction
+endclass
+
+class multi_operator extends alu_transaction;
+    constraint valid_cmd {
+        if (mode == 1) {       // Arithmetic mode
+            cmd inside {0,1,2,3,8};  // ADD/SUB/ADDC/SUBC/MUL
+        }
+        else {                  // Logical mode
+            cmd inside {0,1,2,3,4,5,12,13}; // AND/OR/XOR/NOT/NAND/NOR/XNOR
+        }
+  }
+
+    constraint valid_inp {
+        inp_valid == 3;  // Both operands valid
+        ce == 1;
+    }
+
+
+    virtual function alu_transaction copy();
+        multi_operator copy3 = new();
+        copy3.opa = this.opa;
+        copy3.opb = this.opb;
+        copy3.cmd = this.cmd;
+        copy3.mode = this.mode;
+        copy3.cin = this.cin;
+        copy3.inp_valid = this.inp_valid;
+        copy3.ce = this.ce;
+        return copy3;
+    endfunction
+endclass

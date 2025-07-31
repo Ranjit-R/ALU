@@ -1,0 +1,147 @@
+
+`include "defines.sv"
+
+class alu_driver;
+  alu_transaction drv_trans;
+  mailbox #(alu_transaction) mbx_gd;
+  mailbox #(alu_transaction) mbx_dr;
+  virtual alu_if.DRV vif;
+
+  int cmd_temp,mode_temp;
+  int counter_16 = 0;
+  bit waiting_for_16_cycles = 0;
+
+covergroup cg_drv;
+      INPUT_VALID : coverpoint drv_trans.inp_valid { bins valid_opa = {2'b01};
+                                                     bins valid_opb = {2'b10};
+                                                     bins valid_both = {2'b11};
+                                                     bins invalid = {2'b00};
+                                                   }
+      COMMAND : coverpoint drv_trans.cmd { bins arithmetic[] = {[0:10]};
+                                           bins logical[] = {[0:13]};
+                                           bins arithmetic_invalid[] = {[11:15]};
+                                           bins logical_invalid[] = {14,15};
+                                          }
+      MODE : coverpoint drv_trans.mode { bins arithmetic = {1};
+                                         bins logical = {0};
+                                       }
+      CLOCK_ENABLE : coverpoint drv_trans.ce { bins clock_enable_valid = {1};
+                                               bins clock_enable_invalid = {0};
+                                               }
+OperandA : coverpoint drv_trans.opa {
+    bins zero_c  = {0};                                // Covers when OperandA is exactly 0
+    bins small_c = {[1 : (2**(8/2))-1]};                // Covers values from 1 to 15 (for 8-bit, 2^4 - 1 = 15)
+    bins large_c = {[2**(8/2) : (2**8)-1]};             // Covers values from 16 to 255 (for 8-bit)
+}
+
+OperandB : coverpoint drv_trans.opb {
+    bins zero_c  = {0};                                // Covers when OperandB is exactly 0
+    bins small_c = {[1 : (2**(8/2))-1]};                // Same logic as OperandA
+    bins large_c = {[2**(8/2) : (2**8)-1]};
+}
+
+     // MODE_CMD_: cross MODE,COMMAND;
+     // OPA_OPB_CROSS: cross OPERAND_A,OPERAND_B;
+
+    endgroup:cg_drv
+
+  function new(
+    mailbox #(alu_transaction) mbx_gd,
+    mailbox #(alu_transaction) mbx_dr,
+    virtual alu_if.DRV vif
+  );
+    this.mbx_gd = mbx_gd;
+    this.mbx_dr = mbx_dr;
+    this.vif    = vif;
+    cg_drv = new();
+
+  endfunction
+
+  function cycle_16_wait();
+    if (drv_trans.inp_valid == 2'b11) begin
+      waiting_for_16_cycles = 0;
+      return 0;
+    end
+    else begin
+    if (!( drv_trans.mode &&  drv_trans.inp_valid == 'b01 && drv_trans.cmd inside { 'd4,'d5,'d6,'d7}
+         || !drv_trans.mode && drv_trans.inp_valid == 'b10 && drv_trans.cmd inside { 'd6,'d7,'d8,'d9,'d10,'d11})
+        && counter_16 <= 'd16) begin
+      return 1;
+    end
+    else
+      return 0;
+    end
+  endfunction
+
+
+
+   function void drive_virtual_interface();
+    vif.drv_cb.opa       <= drv_trans.opa;
+    vif.drv_cb.opb       <= drv_trans.opb;
+    vif.drv_cb.cin       <= drv_trans.cin;
+    vif.drv_cb.ce        <= drv_trans.ce;
+    vif.drv_cb.inp_valid <= drv_trans.inp_valid;
+    vif.drv_cb.mode      <= drv_trans.mode;
+    vif.drv_cb.cmd       <= drv_trans.cmd;
+
+  endfunction
+
+   task timing_control();
+    if (drv_trans.mode && (drv_trans.cmd inside {'d9, 'd10})) begin
+      repeat(2) @(vif.drv_cb);
+    end
+    else begin
+      @(vif.drv_cb);
+    end
+  endtask
+
+  task start();
+    drv_trans = new();
+    repeat(4) @(vif.drv_cb);
+    for (int i = 0; i < `no_of_trans; i++) begin
+      mbx_gd.get(drv_trans);
+
+
+      if(cycle_16_wait() && !waiting_for_16_cycles)begin
+        waiting_for_16_cycles = 1;
+        cmd_temp = drv_trans.cmd;
+        mode_temp = drv_trans.mode;
+        counter_16 = 0;
+      end
+      else
+        waiting_for_16_cycles = 0;
+
+      if (waiting_for_16_cycles) begin
+        vif.drv_cb.cmd <= cmd_temp;
+        vif.drv_cb.mode <= mode_temp;
+        vif.drv_cb.opa <= drv_trans.opa;
+        vif.drv_cb.opb <= drv_trans.opb ;
+        vif.drv_cb.cin <= drv_trans.cin;
+        vif.drv_cb.ce <= drv_trans.ce;
+        vif.drv_cb.inp_valid <= drv_trans.inp_valid;
+
+
+        drv_trans.cmd = cmd_temp;
+        drv_trans.mode = mode_temp;
+        counter_16++;
+        if (counter_16 >= 16) begin
+          waiting_for_16_cycles = 0;
+        end
+      end
+      else begin
+        drive_virtual_interface();
+      end
+        timing_control();
+        $display("[DRIVER] @%0t:  input opa=%0d, opb=%0d, cin=%0b, ce=%0b, mode=%0b, inp_valid=%02b, cmd=%0h",
+             $time, drv_trans.opa, drv_trans.opb, drv_trans.cin,
+             drv_trans.ce, drv_trans.mode, drv_trans.inp_valid, drv_trans.cmd);
+        cg_drv.sample();
+        mbx_dr.put(drv_trans);
+    end
+        repeat(2)@(vif.drv_cb);
+        $display(" === INPUT COVERAGE === ");
+        $display(" TOTAL : [ %0f ] ", cg_drv.get_coverage);
+        $display(" ====================== ");
+
+  endtask
+endclass

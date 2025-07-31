@@ -1,0 +1,206 @@
+
+
+`include "defines.sv"
+
+class alu_reference_model;
+
+  alu_transaction ref_trans;
+  mailbox #(alu_transaction) mbx_rs;
+  mailbox #(alu_transaction) mbx_dr;
+  virtual alu_if vif;
+  bit multi_flag;
+  int temp_mult_res;
+  int waiting_for_16_cycles = 0;
+  int counter_16 = 0;
+
+  int err_counter = 0;
+
+  function new(mailbox #(alu_transaction) mbx_dr,
+               mailbox #(alu_transaction) mbx_rs,
+               virtual alu_if vif);
+    this.mbx_dr = mbx_dr;
+    this.mbx_rs = mbx_rs;
+    this.vif    = vif;
+  endfunction
+
+  function bit cycle_16_wait();
+    bit cond;
+
+    cond = (ref_trans.inp_valid == 2'b11) ||
+           (ref_trans.mode && ref_trans.inp_valid == 2'b01 && ref_trans.cmd inside {4,5}) ||
+           (ref_trans.inp_valid == 2'b10 && ref_trans.cmd inside {6,7}) ||
+           (ref_trans.mode && ref_trans.inp_valid == 2'b01 && ref_trans.cmd inside {6,8,10}) ||
+           (ref_trans.inp_valid == 2'b10 && ref_trans.cmd inside {7,9,11});
+
+    if (cond && (counter_16 <= 16)) begin
+       counter_16++; // Increment counter when waiting
+      return 1;
+    end else begin
+      counter_16 = 0; // Reset counter when not waiting
+      return 0;
+    end
+  endfunction
+
+  // Initialize all outputs to default values
+  function void init_outputs();
+    ref_trans.res   = 9'bzzzzzzzzz;
+    ref_trans.cout  =  'bz;
+    ref_trans.oflow =  'bz;
+    ref_trans.g     =  'bz;
+    ref_trans.l     =  'bz;
+    ref_trans.e     =  'bz;
+    ref_trans.err   =  'bz;
+  endfunction
+
+  // Set all outputs to high impedance
+  function void set_outputs_z();
+    ref_trans.res   = 9'bzzzzzzzzz;
+    ref_trans.cout  = 'bz;
+    ref_trans.oflow = 'bz;
+    ref_trans.g     = 'bz;
+    ref_trans.l     = 'bz;
+    ref_trans.e     = 'bz;
+
+    if( counter_16 >= 16)begin
+      ref_trans.err   = 'b1;
+      counter_16 = 0;
+    end
+      else
+        ref_trans.err   = 'bz;
+  endfunction
+
+  task start();
+    ref_trans = new();
+
+    for (int i = 0; i < `no_of_trans; i++) begin
+      mbx_dr.get(ref_trans);
+      init_outputs();
+      if (vif.reset) begin
+        set_outputs_z();
+        err_counter = 0;
+      end
+      else begin
+        if (cycle_16_wait()) begin
+          if (ref_trans.ce) begin
+            case (ref_trans.inp_valid)
+
+              2'b01, 2'b10, 2'b11: begin
+                if (ref_trans.mode == 1'b1) begin // Arithmetic mode
+                  case (ref_trans.cmd)
+                    4'd0: begin // ADD
+                      ref_trans.res = ref_trans.opa + ref_trans.opb;
+                      ref_trans.cout = (ref_trans.opa + ref_trans.opb) > ((1 << `WIDTH) - 1);
+                    end
+
+                    4'd1: begin // SUB
+                      ref_trans.res = ref_trans.opa - ref_trans.opb;
+                      ref_trans.oflow = (ref_trans.opa < ref_trans.opb) ? 1 : 0;
+                    end
+
+                    4'd2: begin // ADD with carry
+                      ref_trans.res = ref_trans.opa + ref_trans.opb + ref_trans.cin;
+                      ref_trans.cout = (ref_trans.opa + ref_trans.opb + ref_trans.cin) > ((1 << `WIDTH) - 1);
+                    end
+
+                    4'd3: begin // SUB with borrow
+                      ref_trans.res = ref_trans.opa - ref_trans.opb - ref_trans.cin;
+                      ref_trans.oflow = (ref_trans.opa < ref_trans.opb) || ((ref_trans.opa - ref_trans.opb) < ref_trans.cin);
+                    end
+
+                    4'd4: ref_trans.res = ref_trans.opa + 1; // INC A
+                    4'd5: ref_trans.res = ref_trans.opa - 1; // DEC A
+                    4'd6: ref_trans.res = ref_trans.opb + 1; // INC B
+                    4'd7: ref_trans.res = ref_trans.opb - 1; // DEC B
+
+                    4'd8: begin // COMPARE
+                      if (ref_trans.opa == ref_trans.opb) begin
+                        ref_trans.e = 1;
+                      end
+                      else if (ref_trans.opa > ref_trans.opb) begin
+                        ref_trans.g = 1;
+                      end
+                      else begin
+                        ref_trans.l = 1;
+                      end
+                    end
+
+                    4'd9: begin // MULTIPLY (A+1)*(B+1)
+                      ref_trans.res = (ref_trans.opa + 1) * (ref_trans.opb + 1);
+                    end
+
+                    4'd10: begin // MULTIPLY (A<<1)*B
+                      ref_trans.res = (ref_trans.opa << 1) * ref_trans.opb;
+                    end
+
+                    default: begin
+                      ref_trans.err = 1'b1;
+                    end
+                  endcase
+                end
+                else begin // mode == 0 (logical operations)
+                  case (ref_trans.cmd)
+                    4'd0: ref_trans.res = ref_trans.opa & ref_trans.opb;          // AND
+                    4'd1: ref_trans.res = ~(ref_trans.opa & ref_trans.opb);      // NAND
+                    4'd2: ref_trans.res = ref_trans.opa | ref_trans.opb;         // OR
+                    4'd3: ref_trans.res = ~(ref_trans.opa | ref_trans.opb);      // NOR
+                    4'd4: ref_trans.res = ref_trans.opa ^ ref_trans.opb;         // XOR
+                    4'd5: ref_trans.res = ~(ref_trans.opa ^ ref_trans.opb);      // XNOR
+                    4'd6: ref_trans.res = ~ref_trans.opa;                        // NOT A
+                    4'd7: ref_trans.res = ~ref_trans.opb;                        // NOT B
+                    4'd8: ref_trans.res = ref_trans.opa >> 1;                    // SHR A
+                    4'd9: ref_trans.res = ref_trans.opa << 1;                    // SHL A
+                    4'd10: ref_trans.res = ref_trans.opb >> 1;                   // SHR B
+                    4'd11: ref_trans.res = ref_trans.opb << 1;                   // SHL B
+                    4'd12:begin
+                                 if (ref_trans.opa >= 'd4)
+                                   ref_trans.err = 1;
+                                 else
+                                   ref_trans.res = (ref_trans.opa << ref_trans.opb) | (ref_trans.opa >> ('d4 - ref_trans.opb));
+                               end
+                    4'd13:begin
+                                 if (ref_trans.opb >= 'd4)
+                                   ref_trans.err = 1;
+                                 else
+                                   ref_trans.res = (ref_trans.opa >> ref_trans.opa) | (ref_trans.opa << ('d4 - ref_trans.opb));
+                               end
+                    default: begin
+                      ref_trans.err = 1;
+                    end
+                  endcase
+                end
+              end
+
+              default: begin // inp_valid == 2'b00 or other invalid values
+                ref_trans.err = 1;
+              end
+
+            endcase
+          end
+          else begin // ce == 0
+            ref_trans.err = 1;
+          end
+
+
+          if (ref_trans.mode && ref_trans.cmd inside {4'd9, 4'd10}) begin
+            temp_mult_res = ref_trans.res;
+            repeat(2) @(vif.REF_SB.ref_cb);
+            ref_trans.res = temp_mult_res;
+          end
+
+        end else begin
+
+//           set_outputs_z();
+                @(vif.REF_SB.ref_cb);
+                $display("[REF] @%0t: input opa=%0d, opb=%0d, cin=%0b, ce=%0b, mode=%0b, inp_valid=%02b, cmd=%0h",
+                $time, ref_trans.opa, ref_trans.opb, ref_trans.cin, ref_trans.ce, ref_trans.mode, ref_trans.inp_valid, ref_trans.cmd);
+        end
+      end
+
+      // Always put transaction and wait for clock
+
+
+      mbx_rs.put(ref_trans);
+    end
+  endtask
+
+endclass

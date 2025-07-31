@@ -1,0 +1,67 @@
+`include "defines.sv"
+interface alu_if(
+  input logic clk,
+  input logic reset
+);
+
+  logic [`WIDTH-1:0] opa;
+  logic [`WIDTH-1:0] opb;
+  logic cin;
+  logic ce;
+  logic mode;
+  logic [1:0] inp_valid;
+  logic [`CMD_WIDTH-1:0] cmd;
+  logic [`WIDTH + 1:0] res;
+  logic oflow;
+  logic cout;
+  logic g, l, e;
+  logic err;
+
+
+ logic [`WIDTH-1:0] opa_q, opb_q;
+  logic [`WIDTH-1:0] expected_res;
+  bit expected_cout;
+  // Counter for 16-cycle timeout tracking
+  int cycle_counter = 0;
+
+  clocking drv_cb @(posedge clk);
+    default input #0 output #0;
+    output opa, opb, cin, ce, mode, inp_valid, cmd;
+    input reset;
+  endclocking
+
+  clocking mon_cb @(posedge clk);
+    default input #0 output #0;
+    input res, oflow, cout, g, l, e, err, reset, cmd, mode;
+  endclocking
+
+  clocking ref_cb @(posedge clk);
+    default input #0 output #0;
+  endclocking
+
+  modport DRV(clocking drv_cb);
+  modport MON(clocking mon_cb);
+  modport REF_SB(clocking ref_cb);
+
+
+property clock_toggle;
+  @(posedge clk or negedge clk)
+  // At every edge, ensure the clock value changes within 1 cycle
+  $rose(clk) |-> ##1 $fell(clk);
+endproperty
+
+assert property (clock_toggle)
+  else $error("ERROR: Clock failed to toggle after rising edge!");
+
+
+property clk_must_toggle;
+  @(posedge clk or negedge clk)
+  ##[1:2] (clk != $past(clk));
+endproperty
+
+assert property (clk_must_toggle)
+  else $error("ERROR: Clock did not toggle within 2 cycles!");
+
+
+
+endinterface

@@ -1,0 +1,140 @@
+
+`include "defines.sv"
+class alu_test;
+
+  virtual alu_if#(`WIDTH, `CMD_WIDTH).DRV    drv_vif;
+  virtual alu_if#(`WIDTH, `CMD_WIDTH).MON    mon_vif;
+  virtual alu_if#(`WIDTH, `CMD_WIDTH).REF_SB ref_vif;
+
+
+  alu_environment env;
+
+
+  function new(
+    virtual alu_if.DRV drv_vif,
+    virtual alu_if.MON mon_vif,
+    virtual alu_if.REF_SB ref_vif
+  );
+    this.drv_vif = drv_vif;
+    this.mon_vif = mon_vif;
+    this.ref_vif = ref_vif;
+  endfunction
+
+  task run();
+    env = new(drv_vif, mon_vif, ref_vif);
+    env.build();
+    env.start();
+  endtask
+
+endclass : alu_test
+
+/*class test1 extends alu_test;
+    mode_check1 trans;
+    function new(
+        virtual alu_if.DRV drv_vif,
+        virtual alu_if.MON mon_vif,
+        virtual alu_if.REF_SB ref_vif
+    );
+        super.new(drv_vif, mon_vif, ref_vif);
+    endfunction
+
+    task run();
+        $display("MODE CHECK 1");
+        env = new(drv_vif, mon_vif, ref_vif);
+        env.build();
+        begin
+            trans = new();
+            env.gen.blueprint = trans;
+        end
+        env.start();
+    endtask
+endclass
+
+class test2 extends alu_test;
+    single_operand trans;
+    function new(
+        virtual alu_if.DRV drv_vif,
+        virtual alu_if.MON mon_vif,
+        virtual alu_if.REF_SB ref_vif
+    );
+        super.new(drv_vif, mon_vif, ref_vif);
+    endfunction
+
+    task run();
+        $display("SINGLE_OPERATOR");
+        env = new(drv_vif, mon_vif, ref_vif);
+        env.build();
+        begin
+            trans = new();
+            env.gen.blueprint = trans;
+        end
+        env.start();
+    endtask
+endclass
+
+class test3 extends alu_test;
+    multi_operator trans;
+    function new(
+        virtual alu_if.DRV drv_vif,
+        virtual alu_if.MON mon_vif,
+        virtual alu_if.REF_SB ref_vif
+    );
+        super.new(drv_vif, mon_vif, ref_vif);
+    endfunction
+
+    task run();
+        $display("MULTI_OPERATOR");
+        env = new(drv_vif, mon_vif, ref_vif);
+        env.build();
+        begin
+            trans = new();
+            env.gen.blueprint = trans;
+        end
+        env.start();
+    endtask
+endclass*/
+
+
+class test_regression extends alu_test;
+        alu_transaction trans0;
+        mode_check1 trans1;
+        single_operand trans2;
+        multi_operator trans3;
+
+
+    function new(
+        virtual alu_if.DRV drv_vif,
+        virtual alu_if.MON mon_vif,
+        virtual alu_if.REF_SB ref_vif
+    );
+        super.new(drv_vif, mon_vif, ref_vif);
+    endfunction
+
+    task run();
+        env = new(drv_vif, mon_vif, ref_vif);
+        env.build();
+        begin
+            trans0 = new();
+            env.gen.blueprint = trans0;
+        end
+        env.start();
+
+        begin
+            trans1 = new();
+            env.gen.blueprint = trans1;
+        end
+        env.start();
+
+        begin
+            trans2 = new();
+            env.gen.blueprint = trans2;
+        end
+        env.start();
+
+        begin
+            trans3 = new();
+            env.gen.blueprint = trans3;
+        end
+        env.start();
+    endtask
+endclass

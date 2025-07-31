@@ -1,0 +1,88 @@
+
+`include "defines.sv"
+class alu_monitor;
+
+    alu_transaction mon_trans;
+    mailbox #(alu_transaction) mbx_ms;
+    virtual alu_if.MON vif;
+    bit mult_check =0;
+
+    covergroup cg_monitor;
+      RESULT_CHECK:coverpoint mon_trans.res { bins result[]={[0:(2**`WIDTH)-1]};}
+      CARR_OUT:coverpoint mon_trans.cout{ bins cout_active = {1};
+                                          bins cout_inactive = {0};
+                                        }
+      OVERFLOW:coverpoint mon_trans.oflow { bins oflow_active = {1};
+                                            bins oflow_inactive = {0};
+                                          }
+      ERROR:coverpoint mon_trans.err { bins error_active = {1};
+                                       bins error_inactive = {0};
+                                     }
+      GREATER:coverpoint mon_trans.g { bins greater_active = {1};
+                                       bins greater_inactive = {0};
+                                     }
+      EQUAL:coverpoint mon_trans.e { bins equal_active = {1};
+                                     bins equal_inactive = {0};
+                                   }
+      LESSER:coverpoint mon_trans.l { bins lesser_active = {1};
+                                      bins lesser_inactive = {0};
+                                    }
+    endgroup
+    function new(virtual alu_if.MON vif,
+                 mailbox #(alu_transaction) mbx_ms);
+        this.vif = vif;
+        this.mbx_ms = mbx_ms;
+        cg_monitor = new;
+    endfunction
+
+  function bit multiplication_check();
+    if( vif.mon_cb.cmd inside { 'd9, 'd10 } && vif.mon_cb.mode ) return 1;
+  else
+    return 0;
+  endfunction
+
+    task start();
+      mon_trans = new();
+      repeat(5) @(vif.mon_cb);
+      for (int i = 0; i < `no_of_trans ; i++) begin
+        if (multiplication_check())begin
+          repeat(2) @(vif.mon_cb)
+             #0;
+            begin
+                mon_trans.res   = vif.mon_cb.res;
+                mon_trans.oflow = vif.mon_cb.oflow;
+                mon_trans.cout  = vif.mon_cb.cout;
+                mon_trans.g     = vif.mon_cb.g;
+                mon_trans.l     = vif.mon_cb.l;
+                mon_trans.e     = vif.mon_cb.e;
+                mon_trans.err   = vif.mon_cb.err;
+
+
+//           $display("MONITOR PASSING THE DATA TO SCOREBOARD res = %d | oflow = %0d | cout = %0d | g = %0d | l = %0d | e = %0d | err = %0d , [ %0t ]",  mon_trans.res, mon_trans.oflow, mon_trans.cout, mon_trans.g, mon_trans.l, mon_trans.e, mon_trans.err,($time - 20));
+          end
+        end
+            else
+              repeat(1)@(vif.mon_cb)
+              #0;
+            begin
+                mon_trans.res   = vif.mon_cb.res;
+                mon_trans.oflow = vif.mon_cb.oflow;
+                mon_trans.cout  = vif.mon_cb.cout;
+                mon_trans.g     = vif.mon_cb.g;
+                mon_trans.l     = vif.mon_cb.l;
+                mon_trans.e     = vif.mon_cb.e;
+                mon_trans.err   = vif.mon_cb.err;
+
+//           $display("MONITOR PASSING THE DATA TO SCOREBOARD res = %d | oflow = %0d | cout = %0d | g = %0d | l = %0d | e = %0d | err = %0d , [ %0t ]",  mon_trans.res, mon_trans.oflow, mon_trans.cout, mon_trans.g, mon_trans.l, mon_trans.e, mon_trans.err,($time - 20));
+          end
+            $display( "MON : RES = [ %0d ] ", mon_trans.res,$time );
+            cg_monitor.sample();
+            mbx_ms.put(mon_trans);
+//             repeat(1) @(vif.mon_cb);
+        end
+        repeat(1) @(vif.mon_cb);
+        $display(" === OUTPUT COVERAGE === ");
+        $display(" TOTAL : [ %0f ] ", cg_monitor.get_coverage);
+        $display(" ====================== ");
+    endtask
+endclass

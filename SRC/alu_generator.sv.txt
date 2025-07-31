@@ -1,0 +1,29 @@
+`include "defines.sv"
+
+class alu_generator;
+
+  alu_transaction blueprint;
+  mailbox #(alu_transaction) mbx_gd;
+
+
+  function new(mailbox #(alu_transaction) mbx_gd);
+    this.mbx_gd = mbx_gd;
+    blueprint = new();
+  endfunction
+
+  task start();
+    for (int i = 0; i < `no_of_trans; i++) begin
+      if (!blueprint.randomize()) begin
+        $display("GENERATOR: Randomization failed at transaction %0d", i);
+        continue;
+      end
+      mbx_gd.put(blueprint.copy());
+
+      $display("[GENERATOR] @%0t:\t opa=%0d, opb=%0d, cin=%0b, ce=%0b, mode=%0b, inp_valid=%02b, cmd=%0h",
+               $time,
+               blueprint.opa, blueprint.opb, blueprint.cin, blueprint.ce, blueprint.mode,  blueprint.inp_valid, blueprint.cmd);
+    end
+    $display(" \n ");
+  endtask
+
+endclass

@@ -1,0 +1,180 @@
+
+
+`include "defines.sv"
+
+class alu_scoreboard;
+   alu_transaction ref2sb_trans, mon2sb_trans;
+   mailbox #(alu_transaction) mbx_rs;
+   mailbox #(alu_transaction) mbx_ms;
+
+   // Individual field counters
+   int res_match = 0, res_mismatch = 0;
+   int err_match = 0, err_mismatch = 0;
+   int cout_match = 0, cout_mismatch = 0;
+   int oflow_match = 0, oflow_mismatch = 0;
+   int g_match = 0, g_mismatch = 0;
+   int l_match = 0, l_mismatch = 0;
+   int e_match = 0, e_mismatch = 0;
+
+   // Overall counters
+   int overall_match = 0, overall_mismatch = 0;
+   int total_transactions = 0;
+
+   function new(mailbox #(alu_transaction) mbx_rs,
+                mailbox #(alu_transaction) mbx_ms);
+      this.mbx_rs = mbx_rs;
+      this.mbx_ms = mbx_ms;
+   endfunction
+
+   task start();
+     ref2sb_trans = new();
+     mon2sb_trans = new();
+
+     for (int i = 0; i < `no_of_trans; i++) begin
+       fork
+         #0 mbx_rs.get(ref2sb_trans);
+         #0 mbx_ms.get(mon2sb_trans);
+       join
+
+       total_transactions++;
+       compare_report();
+     end
+
+     // Print final summary
+     print_summary();
+   endtask
+
+   task compare_report();
+     bit all_fields_match = 1'b1;
+
+     fork
+       // Compare RES field
+       begin
+         if(mon2sb_trans.res === ref2sb_trans.res) begin
+           res_match++;
+           $display("Result Match Successful: Monitor res=%0d, Reference model res=%0d",
+                   mon2sb_trans.res, ref2sb_trans.res);
+         end else begin
+           res_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Result Match Unsuccessful: Monitor res=%0d, Reference model res=%0d",
+                   mon2sb_trans.res, ref2sb_trans.res);
+         end
+       end
+
+       // Compare ERR field
+       begin
+         if(mon2sb_trans.err === ref2sb_trans.err) begin
+           err_match++;
+           $display("Error Match Successful: Monitor err=%0d, Reference model err=%0d",
+                   mon2sb_trans.err, ref2sb_trans.err);
+         end else begin
+           err_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Error Match Unsuccessful: Monitor err=%0d, Reference model err=%0d",
+                   mon2sb_trans.err, ref2sb_trans.err);
+         end
+       end
+
+       // Compare COUT field
+       begin
+         if(mon2sb_trans.cout === ref2sb_trans.cout) begin
+           cout_match++;
+           $display("Carry out Match Successful: Monitor cout=%0d, Reference model cout=%0d",
+                   mon2sb_trans.cout, ref2sb_trans.cout);
+         end else begin
+           cout_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Carry out Match Unsuccessful: Monitor cout=%0d, Reference model cout=%0d",
+                   mon2sb_trans.cout, ref2sb_trans.cout);
+         end
+       end
+
+       // Compare OFLOW field
+       begin
+         if(mon2sb_trans.oflow === ref2sb_trans.oflow) begin
+           oflow_match++;
+           $display("Overflow Match Successful: Monitor oflow=%0d, Reference model oflow=%0d",
+                   mon2sb_trans.oflow, ref2sb_trans.oflow);
+         end else begin
+           oflow_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Overflow Match Unsuccessful: Monitor oflow=%0d, Reference model oflow=%0d",
+                   mon2sb_trans.oflow, ref2sb_trans.oflow);
+         end
+       end
+
+       // Compare G field
+       begin
+         if(mon2sb_trans.g === ref2sb_trans.g) begin
+           g_match++;
+           $display("Greater Match Successful: Monitor g=%0d, Reference model g=%0d",
+                   mon2sb_trans.g, ref2sb_trans.g);
+         end else begin
+           g_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Greater Match Unsuccessful: Monitor g=%0d, Reference model g=%0d",
+                   mon2sb_trans.g, ref2sb_trans.g);
+         end
+       end
+
+       // Compare L field
+       begin
+         if(mon2sb_trans.l === ref2sb_trans.l) begin
+           l_match++;
+           $display("Lesser Match Successful: Monitor l=%0d, Reference model l=%0d",
+                   mon2sb_trans.l, ref2sb_trans.l);
+         end else begin
+           l_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Lesser Match Unsuccessful: Monitor l=%0d, Reference model l=%0d",
+                   mon2sb_trans.l, ref2sb_trans.l);
+         end
+       end
+
+       // Compare E field
+       begin
+         if(mon2sb_trans.e === ref2sb_trans.e) begin
+           e_match++;
+           $display("Equal Match Successful: Monitor e=%0d, Reference model e=%0d",
+                   mon2sb_trans.e, ref2sb_trans.e);
+         end else begin
+           e_mismatch++;
+           all_fields_match = 1'b0;
+           $display("Equal Match Unsuccessful: Monitor e=%0d, Reference model e=%0d",
+                   mon2sb_trans.e, ref2sb_trans.e);
+         end
+       end
+     join
+
+     // Overall comparison
+     if (all_fields_match) begin
+       overall_match++;
+       $display("Overall Match Successful %0d at time %0t", overall_match, $time);
+     end else begin
+       overall_mismatch++;
+       $display("Overall Match Unsuccessful %0d at time %0t", overall_mismatch, $time);
+     end
+
+     $display("----------------------------------------");
+   endtask
+
+   task print_summary();
+     $display("\n=== SCOREBOARD SUMMARY ===");
+     $display("Total Transactions: %0d", total_transactions);
+     $display("Overall Matches: %0d", overall_match);
+     $display("Overall Mismatches: %0d", overall_mismatch);
+     $display("Success Rate: %.2f%%", (real'(overall_match) / real'(total_transactions)) * 100.0);
+
+     $display("\n--- Field-wise Statistics ---");
+     $display("RES  - Match: %0d, Mismatch: %0d", res_match, res_mismatch);
+     $display("ERR  - Match: %0d, Mismatch: %0d", err_match, err_mismatch);
+     $display("COUT - Match: %0d, Mismatch: %0d", cout_match, cout_mismatch);
+     $display("OFLOW- Match: %0d, Mismatch: %0d", oflow_match, oflow_mismatch);
+     $display("G    - Match: %0d, Mismatch: %0d", g_match, g_mismatch);
+     $display("L    - Match: %0d, Mismatch: %0d", l_match, l_mismatch);
+     $display("E    - Match: %0d, Mismatch: %0d", e_match, e_mismatch);
+     $display("==========================\n");
+   endtask
+
+endclass
