@@ -237,4 +237,5 @@ module ALU_DESIGN #(parameter DW = 8, CW = 4)(INP_VALID,OPA,OPB,CIN,CLK,RST,CMD,
     end
    end
 
+
 endmodule
